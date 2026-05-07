@@ -58,7 +58,6 @@ export default function AdminPage() {
     price: '',
     commission: '',
     stock: '',
-    status: 'disponible' as 'disponible' | 'agotado'
     status: 'disponible' as 'disponible' | 'agotado',
     image: null as File | null
 })
@@ -125,7 +124,8 @@ const supabase = createClient()
         price: '',
         commission: '',
         stock: '',
-        status: 'disponible'
+        status: 'disponible',
+        image: null
       })
     }
     setProductDialogOpen(true)
@@ -140,13 +140,29 @@ const supabase = createClient()
     setSaving(true)
 
     try {
+      let imageUrl = editingProduct?.image_url || null
+  if (productForm.image) {
+    const fileExt = productForm.image.name.split('.').pop()
+    const fileName = `${Date.now()}-${Math.random()}.${fileExt}`
+    
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('products')
+      .upload(fileName, productForm.image)
+    if (uploadError) throw uploadError
+    const { data: { publicUrl } } = supabase.storage
+      .from('products')
+      .getPublicUrl(fileName)
+    
+    imageUrl = publicUrl
+  }
       const productData = {
         name: productForm.name,
         description: productForm.description || null,
         price: parseFloat(productForm.price),
         commission: parseFloat(productForm.commission),
         stock: parseInt(productForm.stock) || 0,
-        status: productForm.status
+        status: productForm.status,
+        image_url: imageUrl
       }
 
       if (editingProduct) {
@@ -321,6 +337,18 @@ const supabase = createClient()
                     />
                   </div>
                   <div className="space-y-2">
+                     <Label htmlFor="image">Imagen del producto</Label>
+                    <Input
+                    id="image"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setProductForm(prev => ({ ...prev, image: e.target.files?.[0] || null }))}
+                    />
+                  {editingProduct?.image_url && (
+                  <img src={editingProduct.image_url} alt="Producto" className="w-20 h-20 object-cover rounded" />
+                  )}
+                  </div>
+                <div className="space-y-2">
                     <Label htmlFor="description">Descripción</Label>
                     <Textarea
                       id="description"
@@ -332,7 +360,7 @@ const supabase = createClient()
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="price">Precio (EUR) *</Label>
+                       <Label htmlFor="price">Precio (USD) *</Label>
                       <Input
                         id="price"
                         type="number"
@@ -343,7 +371,7 @@ const supabase = createClient()
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="commission">Comisión (EUR) *</Label>
+                      <Label htmlFor="commission">Comisión (USD) *</Label>
                       <Input
                         id="commission"
                         type="number"
