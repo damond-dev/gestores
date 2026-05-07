@@ -23,15 +23,19 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
-    const result = await login(username, password)
-    
-    if (result.success) {
-      router.push('/dashboard')
-    } else {
-      setError(result.error || 'Error al iniciar sesión')
+    try {
+      const result = await login(username, password)
+      
+      if (result.success) {
+        router.push('/dashboard')
+      } else {
+        setError(result.error || 'Error al iniciar sesión')
+        setLoading(false)
+      }
+    } catch (err) {
+      setError('Error al iniciar sesión')
+      setLoading(false)
     }
-    
-    setLoading(false)
   }
 
   return (
