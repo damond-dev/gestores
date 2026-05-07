@@ -59,9 +59,11 @@ export default function AdminPage() {
     commission: '',
     stock: '',
     status: 'disponible' as 'disponible' | 'agotado'
-  })
-  const [saving, setSaving] = useState(false)
-  const supabase = createClient()
+    status: 'disponible' as 'disponible' | 'agotado',
+    image: null as File | null
+})
+const [saving, setSaving] = useState(false)
+const supabase = createClient()
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
