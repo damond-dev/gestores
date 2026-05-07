@@ -2,14 +2,24 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Profile } from '@/lib/types'
+import type { User } from '@supabase/supabase-js'
+
+interface Profile {
+  id: string
+  username: string
+  access_code: string
+  role: string
+  total_commission: number
+  total_items_sold: number
+}
 
 interface AuthContextType {
   user: Profile | null
   loading: boolean
+  isAdmin: boolean
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
-  register: (username: string, password: string, accessCode: string) => Promise<{ success: boolean; error?: string }>
-  logout: () => void
+  register: (username: string, password: string, accessCode: string, role?: string) => Promise<{ success: boolean; error?: string }>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -20,42 +30,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = createClient()
 
   useEffect(() => {
-    // Check for stored user on mount
-    const storedUser = localStorage.getItem('gestor_user')
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser))
-      } catch {
-        localStorage.removeItem('gestor_user')
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+        
+        if (profile) {
+          setUser(profile)
+        }
       }
+      setLoading(false)
     }
-    setLoading(false)
-  }, [])
+
+    initAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+        
+        setUser(profile)
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [supabase])
 
   const login = async (username: string, password: string) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .eq('password', password)
-        .single()
+      const email = `${username}@gestor.local`
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-      if (error || !data) {
+      if (error) {
         return { success: false, error: 'Usuario o contraseña incorrectos' }
       }
 
-      setUser(data)
-      localStorage.setItem('gestor_user', JSON.stringify(data))
-      return { success: true }
+      if (data.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single()
+
+        if (profile) {
+          setUser(profile)
+          return { success: true }
+        }
+      }
+
+      return { success: false, error: 'Error al iniciar sesión' }
     } catch {
       return { success: false, error: 'Error al iniciar sesión' }
     }
   }
 
-  const register = async (username: string, password: string, accessCode: string) => {
+  const register = async (username: string, password: string, accessCode: string, role: string = 'gestor') => {
     try {
-      // Check if access code is valid (for this example, we accept any unique code)
       const { data: existingCode } = await supabase
         .from('profiles')
         .select('id')
@@ -66,7 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'El código de acceso ya está en uso' }
       }
 
-      // Check if username exists
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('id')
@@ -77,39 +121,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'El nombre de usuario ya existe' }
       }
 
-      // Create new user
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert({
-          username,
-          password,
-          access_code: accessCode,
-          role: 'gestor',
-          total_commission: 0,
-          total_items_sold: 0
-        })
-        .select()
-        .single()
+      const email = `${username}@gestor.local`
+      
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username,
+            accessCode,
+            role,
+          }
+        }
+      })
 
       if (error) {
-        return { success: false, error: 'Error al crear la cuenta' }
+        return { success: false, error: error.message }
       }
 
-      setUser(data)
-      localStorage.setItem('gestor_user', JSON.stringify(data))
       return { success: true }
     } catch {
       return { success: false, error: 'Error al registrarse' }
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut()
     setUser(null)
-    localStorage.removeItem('gestor_user')
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      isAdmin: user?.role === 'admin',
+      login, 
+      register, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   )

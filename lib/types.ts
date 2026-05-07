@@ -1,12 +1,11 @@
 export interface Profile {
   id: string
   username: string
-  password: string
   access_code: string
-  role: 'gestor' | 'admin'
+  role: string
   total_commission: number
   total_items_sold: number
-  created_at: string
+  created_at?: string
 }
 
 export interface Product {
