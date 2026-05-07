@@ -50,15 +50,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
+      if (event === 'SIGNED_IN' && session?.user) {
         const { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .single()
         
-        setUser(profile)
-      } else {
+        if (profile) {
+          setUser(profile)
+        }
+      } else if (event === 'SIGNED_OUT') {
         setUser(null)
       }
       setLoading(false)
@@ -69,9 +71,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', username)
+        .single()
+
+      if (profileError || !profile) {
+        return { success: false, error: 'Usuario o contraseña incorrectos' }
+      }
+
       const email = `${username}@gestor.local`
       
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
@@ -80,20 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'Usuario o contraseña incorrectos' }
       }
 
-      if (data.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single()
-
-        if (profile) {
-          setUser(profile)
-          return { success: true }
-        }
-      }
-
-      return { success: false, error: 'Error al iniciar sesión' }
+      setUser(profile)
+      return { success: true }
     } catch {
       return { success: false, error: 'Error al iniciar sesión' }
     }
