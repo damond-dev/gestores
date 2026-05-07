@@ -2,13 +2,13 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
 
 interface Profile {
   id: string
   username: string
   access_code: string
   role: string
+  password: string
   total_commission: number
   total_items_sold: number
 }
@@ -18,11 +18,13 @@ interface AuthContextType {
   loading: boolean
   isAdmin: boolean
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
-  register: (username: string, password: string, accessCode: string, role?: string) => Promise<{ success: boolean; error?: string }>
-  logout: () => Promise<void>
+  register: (username: string, password: string, accessCode: string) => Promise<{ success: boolean; error?: string }>
+  logout: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+const SESSION_KEY = 'gestor_session'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null)
@@ -30,134 +32,123 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = createClient()
 
   useEffect(() => {
-    const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        
-        if (profile) {
-          setUser(profile)
-        }
+    // Recuperar sesión del localStorage al cargar
+    try {
+      const stored = localStorage.getItem(SESSION_KEY)
+      if (stored) {
+        setUser(JSON.parse(stored))
       }
-      setLoading(false)
+    } catch {
+      localStorage.removeItem(SESSION_KEY)
     }
-
-    initAuth()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        
-        if (profile) {
-          setUser(profile)
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null)
-      }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [supabase])
+    setLoading(false)
+  }, [])
 
   const login = async (username: string, password: string) => {
     try {
-      const { data: profile, error: profileError } = await supabase
+      // Timeout de 10 segundos
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 10000)
+      )
+
+      const queryPromise = supabase
         .from('profiles')
         .select('*')
         .eq('username', username)
+        .eq('password', password)
         .single()
 
-      if (profileError || !profile) {
+      const { data: profile, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise,
+      ]) as Awaited<typeof queryPromise>
+
+      if (error || !profile) {
         return { success: false, error: 'Usuario o contraseña incorrectos' }
       }
 
-      const email = `${username}@gestor.local`
-      
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        return { success: false, error: 'Usuario o contraseña incorrectos' }
-      }
-
+      // Guardar sesión en localStorage
+      localStorage.setItem(SESSION_KEY, JSON.stringify(profile))
       setUser(profile)
       return { success: true }
-    } catch {
+    } catch (err: any) {
+      if (err?.message === 'timeout') {
+        return { success: false, error: 'El servidor tardó demasiado. Intenta de nuevo.' }
+      }
       return { success: false, error: 'Error al iniciar sesión' }
     }
   }
 
-  const register = async (username: string, password: string, accessCode: string, role: string = 'gestor') => {
+  const register = async (username: string, password: string, accessCode: string) => {
     try {
+      // Verificar que el código empiece por GESTOR-
+      if (!accessCode.startsWith('GESTOR-')) {
+        return { success: false, error: 'Código inválido. Contacta con la administración.' }
+      }
+
+      // Verificar que el código no esté en uso
       const { data: existingCode } = await supabase
         .from('profiles')
         .select('id')
         .eq('access_code', accessCode)
-        .single()
+        .maybeSingle()
 
       if (existingCode) {
         return { success: false, error: 'El código de acceso ya está en uso' }
       }
 
+      // Verificar que el username no esté en uso
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('id')
         .eq('username', username)
-        .single()
+        .maybeSingle()
 
       if (existingUser) {
         return { success: false, error: 'El nombre de usuario ya existe' }
       }
 
-      const email = `${username}@gestor.local`
-      
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username,
-            accessCode,
-            role,
-          }
-        }
-      })
+      // Insertar nuevo gestor en profiles
+      const { data: newProfile, error } = await supabase
+        .from('profiles')
+        .insert({
+          username,
+          password,
+          access_code: accessCode,
+          role: 'gestor',
+          total_commission: 0,
+          total_items_sold: 0,
+        })
+        .select()
+        .single()
 
-      if (error) {
-        return { success: false, error: error.message }
+      if (error || !newProfile) {
+        return { success: false, error: 'Error al crear la cuenta' }
       }
 
+      // Guardar sesión automáticamente tras registrarse
+      localStorage.setItem(SESSION_KEY, JSON.stringify(newProfile))
+      setUser(newProfile)
       return { success: true }
     } catch {
       return { success: false, error: 'Error al registrarse' }
     }
   }
 
-  const logout = async () => {
-    await supabase.auth.signOut()
+  const logout = () => {
+    localStorage.removeItem(SESSION_KEY)
     setUser(null)
+    window.location.href = '/login'
   }
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
+    <AuthContext.Provider value={{
+      user,
+      loading,
       isAdmin: user?.role === 'admin',
-      login, 
-      register, 
-      logout 
+      login,
+      register,
+      logout,
     }}>
       {children}
     </AuthContext.Provider>
