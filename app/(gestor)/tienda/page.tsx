@@ -124,11 +124,20 @@ export default function TiendaPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1">
-                  {product.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                      {product.description}
-                    </p>
-                  )}
+  {product.image_url && (
+    <div className="mb-3 rounded-md overflow-hidden aspect-square bg-muted">
+      <img
+        src={product.image_url}
+        alt={product.name}
+        className="w-full h-full object-cover"
+      />
+    </div>
+  )}
+  {product.description && (
+    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+      {product.description}
+    </p>
+  )}
                   <div className="space-y-1">
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Precio:</span>
