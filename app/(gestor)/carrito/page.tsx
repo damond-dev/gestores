@@ -77,7 +77,7 @@ export default function CarritoPage() {
           total_commission: user.total_commission + totalCommission,
           total_items_sold: user.total_items_sold + totalItems
         })
-        .eq('id', user.id)
+        .eq('username', user.username)
 
       clearCart()
       toast.success('Pedido realizado con éxito')
